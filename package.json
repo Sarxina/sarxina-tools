@@ -1,0 +1,51 @@
+{
+  "name": "@sarxina/sarxina-tools",
+  "version": "0.1.0",
+  "description": "Shared streaming utilities — Twitch chat manager, VTube Studio client, etc.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./twitch": {
+      "types": "./dist/twitch/index.d.ts",
+      "import": "./dist/twitch/index.js"
+    },
+    "./vts": {
+      "types": "./dist/vts/index.d.ts",
+      "import": "./dist/vts/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@twurple/auth": "^7.4.0",
+    "@twurple/chat": "^7.4.0",
+    "@twurple/api": "^7.4.0",
+    "@twurple/eventsub-ws": "^7.4.0",
+    "@twurple/eventsub-base": "^7.4.0",
+    "ws": "^8.16.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "@types/node": "^22.0.0",
+    "@types/ws": "^8.5.10"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Sarxina/sarxina-tools.git"
+  },
+  "author": "Sarxina",
+  "license": "ISC"
+}
