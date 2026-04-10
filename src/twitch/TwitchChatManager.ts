@@ -36,13 +36,13 @@ export class TwitchChatManager {
     private setupTwitchConnection = async (msgCallback: (message: string, chatter: string) => void) => {
 
         const authProvider = new StaticAuthProvider(
-            process.env.TWITCH_CLIENT_ID!,
-            process.env.TWITCH_ACCESS_TOKEN!
+            process.env["TWITCH_CLIENT_ID"]!,
+            process.env["TWITCH_ACCESS_TOKEN"]!
         );
 
         this.chatClient = new ChatClient({
             authProvider,
-            channels: [process.env.TWITCH_CHANNEL_NAME!]
+            channels: [process.env["TWITCH_CHANNEL_NAME"]!]
         });
 
         this.apiClient = new ApiClient({authProvider: authProvider});
@@ -51,13 +51,13 @@ export class TwitchChatManager {
         this.chatCallbacks.push(msgCallback);
 
         // Check all of the message callbacks
-        this.chatClient.onMessage((channel, user, message) => {
+        this.chatClient.onMessage((_channel, user, message) => {
             this.chatCallbacks.forEach(cb => cb(message, user));
         })
 
         // Check all the channel redemption callbacks
         this.eventListener.onChannelRedemptionAdd(
-            process.env.TWITCH_BROADCASTER_ID!,
+            process.env["TWITCH_BROADCASTER_ID"]!,
             (event: EventSubChannelRedemptionAddEvent) => {
                 this.redeemCallbacks.forEach(cb => cb(event.userDisplayName, event.input, event.rewardCost))
             }
@@ -68,7 +68,7 @@ export class TwitchChatManager {
     }
 
     say = async (message: string) => {
-        await this.chatClient.say(process.env.TWITCH_CHANNEL_NAME!, message);
+        await this.chatClient.say(process.env["TWITCH_CHANNEL_NAME"]!, message);
     }
 }
 
