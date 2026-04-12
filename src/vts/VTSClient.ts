@@ -11,11 +11,6 @@ export interface VTSClientOptions {
     requestTimeoutMs?: number;
 }
 
-/**
- * Shape of a VTube Studio API response. Responses always have a requestID
- * that echoes the one from the request, a messageType describing what came
- * back, and an opaque data payload.
- */
 interface VTSResponse {
     apiName: string;
     apiVersion: string;
@@ -30,9 +25,6 @@ interface PendingRequest {
     timeout: ReturnType<typeof setTimeout>;
 }
 
-/**
- * Error thrown when the VTS API returns an APIError messageType.
- */
 export class VTSApiError extends Error {
     readonly code: number | undefined;
     constructor(message: string, code?: number) {
@@ -42,15 +34,10 @@ export class VTSApiError extends Error {
     }
 }
 
-/**
- * A connected, authenticated client for the VTube Studio API.
- *
- * Use the static `connect` factory to create an instance — it handles the
- * websocket handshake and plugin authentication in one step.
- */
 export class VTSClient {
     private readonly ws: WebSocket;
     private readonly pendingRequests = new Map<string, PendingRequest>();
+    private readonly eventListeners = new Map<string, ((data: Record<string, unknown>) => void)[]>();
     private readonly requestTimeoutMs: number;
     private nextRequestId = 0;
     private authenticated = false;
@@ -64,14 +51,6 @@ export class VTSClient {
         });
     }
 
-    /**
-     * Open a connection to VTube Studio and authenticate as a plugin.
-     *
-     * Authentication is a two-step handshake: the client first asks VTS for
-     * a token, the user approves the plugin in the VTS UI, and then the
-     * client uses the token to authenticate for the session. The user only
-     * sees the approval prompt the first time a plugin connects.
-     */
     static async connect(opts: VTSClientOptions): Promise<VTSClient> {
         const url = opts.url ?? "ws://localhost:8001";
         const requestTimeoutMs = opts.requestTimeoutMs ?? 10000;
@@ -87,10 +66,6 @@ export class VTSClient {
         return client;
     }
 
-    /**
-     * Send a raw request and get the response. Throws VTSApiError if VTS
-     * returns an APIError messageType.
-     */
     async sendRequest(messageType: string, data?: Record<string, unknown>): Promise<VTSResponse> {
         const requestID = String(++this.nextRequestId);
         const request: Record<string, unknown> = {
@@ -123,16 +98,13 @@ export class VTSClient {
         return response;
     }
 
-    /**
-     * Close the connection cleanly.
-     */
     disconnect(): void {
-        // Cancel all pending request timeouts
         for (const pending of this.pendingRequests.values()) {
             clearTimeout(pending.timeout);
             pending.reject(new Error("VTSClient was disconnected"));
         }
         this.pendingRequests.clear();
+        this.eventListeners.clear();
         this.ws.close();
     }
 
@@ -149,7 +121,6 @@ export class VTSClient {
             throw new Error("VTS did not return an authentication token");
         }
 
-        // Give the user a moment to approve the plugin in VTS if prompted.
         await new Promise((r) => setTimeout(r, 2000));
 
         const authResp = await this.sendRequest("AuthenticationRequest", {
@@ -167,19 +138,99 @@ export class VTSClient {
         this.authenticated = true;
     }
 
-    /**
-     * Whether the client has completed authentication.
-     */
     isAuthenticated(): boolean {
         return this.authenticated;
     }
 
-    // --- Item management ---
+    // --- Event subscriptions ---
 
     /**
-     * Load an item (image, gif, etc.) into the VTS scene from base64-encoded data.
-     * Returns the instanceID that can be used to unload or pin the item later.
+     * Subscribe to a VTS event. The callback fires every time the event
+     * occurs until you unsubscribe.
      */
+    async subscribeToEvent(
+        eventName: string,
+        callback: (data: Record<string, unknown>) => void,
+        config: Record<string, unknown> = {}
+    ): Promise<void> {
+        await this.sendRequest("EventSubscriptionRequest", {
+            eventName,
+            subscribe: true,
+            config,
+        });
+
+        const listeners = this.eventListeners.get(eventName) ?? [];
+        listeners.push(callback);
+        this.eventListeners.set(eventName, listeners);
+    }
+
+    /**
+     * Unsubscribe from a VTS event.
+     */
+    async unsubscribeFromEvent(eventName: string): Promise<void> {
+        await this.sendRequest("EventSubscriptionRequest", {
+            eventName,
+            subscribe: false,
+            config: {},
+        });
+
+        this.eventListeners.delete(eventName);
+    }
+
+    // --- User click ---
+
+    /**
+     * Wait for the user to click on their model in VTS. Returns the exact
+     * artmesh and vertex-level position of the click, which can be passed
+     * directly to pinItem() with vertexPinType "Provided" for pixel-perfect
+     * pinning.
+     *
+     * Subscribes to ModelClickedEvent, waits for one click, unsubscribes,
+     * and returns the topmost artmesh hit info.
+     *
+     * The caller is responsible for telling the user what to click (e.g.
+     * via a UI prompt in the launcher).
+     */
+    async requestUserClick(): Promise<ClickPinResult> {
+        return new Promise<ClickPinResult>((resolve, reject) => {
+            const onEvent = (data: Record<string, unknown>): void => {
+                const modelWasClicked = data["modelWasClicked"] as boolean | undefined;
+                if (!modelWasClicked) return; // click wasn't on the model
+
+                const hits = data["artMeshHits"] as ArtMeshHit[] | undefined;
+                if (!hits || hits.length === 0) return;
+
+                // Take the topmost (order 0) hit
+                const topHit = hits.find((h) => h.artMeshOrder === 0) ?? hits[0]!;
+                const info = topHit.hitInfo;
+
+                // Unsubscribe and resolve
+                this.unsubscribeFromEvent("ModelClickedEvent").catch(() => {
+                    // Best effort
+                });
+
+                resolve({
+                    modelID: info.modelID,
+                    artMeshID: info.artMeshID,
+                    angle: info.angle,
+                    size: info.size,
+                    vertexID1: info.vertexID1,
+                    vertexID2: info.vertexID2,
+                    vertexID3: info.vertexID3,
+                    vertexWeight1: info.vertexWeight1,
+                    vertexWeight2: info.vertexWeight2,
+                    vertexWeight3: info.vertexWeight3,
+                });
+            };
+
+            this.subscribeToEvent("ModelClickedEvent", onEvent, {
+                onlyClicksOnModel: true,
+            }).catch(reject);
+        });
+    }
+
+    // --- Item management ---
+
     async loadItem(opts: LoadItemOptions): Promise<string> {
         const resp = await this.sendRequest("ItemLoadRequest", {
             fileName: opts.fileName,
@@ -208,9 +259,6 @@ export class VTSClient {
         return instanceID;
     }
 
-    /**
-     * Unload a previously-loaded item by its instanceID.
-     */
     async unloadItem(instanceID: string): Promise<void> {
         await this.sendRequest("ItemUnloadRequest", {
             instanceIDs: [instanceID],
@@ -221,7 +269,7 @@ export class VTSClient {
     }
 
     /**
-     * Pin an item to a specific art mesh on the current model.
+     * Pin an item to a mesh using center-point pinning.
      */
     async pinItem(instanceID: string, pinInfo: PinInfo): Promise<void> {
         await this.sendRequest("ItemPinRequest", {
@@ -240,8 +288,35 @@ export class VTSClient {
     }
 
     /**
-     * Unpin an item without unloading it.
+     * Pin an item to an exact position on the model using vertex-level
+     * coordinates from requestUserClick() or a saved ClickPinResult.
      */
+    async pinItemExact(instanceID: string, pin: ClickPinResult, opts?: {
+        angleRelativeTo?: PinInfo["angleRelativeTo"];
+        sizeRelativeTo?: PinInfo["sizeRelativeTo"];
+        size?: number;
+    }): Promise<void> {
+        await this.sendRequest("ItemPinRequest", {
+            pin: true,
+            itemInstanceID: instanceID,
+            angleRelativeTo: opts?.angleRelativeTo ?? "RelativeToModel",
+            sizeRelativeTo: opts?.sizeRelativeTo ?? "RelativeToWorld",
+            vertexPinType: "Provided",
+            pinInfo: {
+                modelID: pin.modelID,
+                artMeshID: pin.artMeshID,
+                angle: pin.angle,
+                size: opts?.size ?? pin.size,
+                vertexID1: pin.vertexID1,
+                vertexID2: pin.vertexID2,
+                vertexID3: pin.vertexID3,
+                vertexWeight1: pin.vertexWeight1,
+                vertexWeight2: pin.vertexWeight2,
+                vertexWeight3: pin.vertexWeight3,
+            },
+        });
+    }
+
     async unpinItem(instanceID: string): Promise<void> {
         await this.sendRequest("ItemPinRequest", {
             pin: false,
@@ -251,21 +326,11 @@ export class VTSClient {
 
     // --- Art mesh helpers ---
 
-    /**
-     * Get the list of art mesh names on the currently loaded model.
-     */
     async listArtMeshes(): Promise<string[]> {
         const resp = await this.sendRequest("ArtMeshListRequest");
         return (resp.data as { artMeshNames?: string[] }).artMeshNames ?? [];
     }
 
-    /**
-     * Find the first art mesh whose name contains one of the given patterns.
-     * Useful for pinning items to face parts across different models where
-     * the exact mesh name isn't known up front.
-     *
-     * Patterns are tried in order — the first match wins.
-     */
     async findArtMesh(patterns: string[]): Promise<string | null> {
         const meshNames = await this.listArtMeshes();
         for (const pattern of patterns) {
@@ -277,23 +342,15 @@ export class VTSClient {
 
     // --- Parameter injection ---
 
-    /**
-     * Get the list of input parameters on the current model (e.g. FaceAngleX,
-     * LeftEyeOpenAmount). Each parameter has a min/max range that describes
-     * what values the model accepts.
-     */
     async getInputParameters(): Promise<ModelParameter[]> {
         const resp = await this.sendRequest("InputParameterListRequest");
         const data = resp.data as Record<string, unknown>;
 
-        // VTS returns parameters under various keys depending on the kind.
-        // Collect anything that looks like a parameter list.
         const candidates: unknown[] = [];
         for (const key of ["modelParameters", "defaultParameters", "customParameters"]) {
             const val = data[key];
             if (Array.isArray(val)) candidates.push(...val);
         }
-        // Fall back to collecting any array values if the known keys were empty.
         if (candidates.length === 0) {
             for (const val of Object.values(data)) {
                 if (Array.isArray(val)) candidates.push(...val);
@@ -310,13 +367,7 @@ export class VTSClient {
             );
     }
 
-    /**
-     * Send parameter values to VTS. Mode "set" replaces the value, "add" adds
-     * to the current value. The default is "set".
-     */
     injectParameters(values: ParameterValue[], mode: "set" | "add" = "set"): void {
-        // Fire-and-forget for performance — high-frequency callers (e.g. 30fps
-        // animation loops) don't want to await a round-trip per frame.
         const request = {
             apiName: "VTubeStudioPublicAPI",
             apiVersion: "1.0",
@@ -334,22 +385,70 @@ export class VTSClient {
     // --- Internal ---
 
     private handleMessage(raw: WebSocket.RawData): void {
-        let response: VTSResponse;
+        let message: VTSResponse;
         try {
-            response = JSON.parse(raw.toString()) as VTSResponse;
+            message = JSON.parse(raw.toString()) as VTSResponse;
         } catch {
-            return; // ignore malformed messages
+            return;
         }
-        const pending = this.pendingRequests.get(response.requestID);
-        if (!pending) return; // unknown requestID (e.g. from injectParameters fire-and-forget)
 
-        clearTimeout(pending.timeout);
-        this.pendingRequests.delete(response.requestID);
-        pending.resolve(response);
+        // Check if this is a pending request response
+        const pending = this.pendingRequests.get(message.requestID);
+        if (pending) {
+            clearTimeout(pending.timeout);
+            this.pendingRequests.delete(message.requestID);
+            pending.resolve(message);
+            return;
+        }
+
+        // Check if this is a pushed event
+        const listeners = this.eventListeners.get(message.messageType);
+        if (listeners) {
+            for (const listener of listeners) {
+                listener(message.data);
+            }
+        }
     }
 }
 
 // --- Public types ---
+
+/**
+ * The result of a user clicking on their model. Contains the exact
+ * artmesh and vertex-level position of the click. Can be saved to
+ * config and reused with pinItemExact().
+ */
+export interface ClickPinResult {
+    modelID: string;
+    artMeshID: string;
+    angle: number;
+    size: number;
+    vertexID1: number;
+    vertexID2: number;
+    vertexID3: number;
+    vertexWeight1: number;
+    vertexWeight2: number;
+    vertexWeight3: number;
+}
+
+interface ArtMeshHitInfo {
+    modelID: string;
+    artMeshID: string;
+    angle: number;
+    size: number;
+    vertexID1: number;
+    vertexID2: number;
+    vertexID3: number;
+    vertexWeight1: number;
+    vertexWeight2: number;
+    vertexWeight3: number;
+}
+
+interface ArtMeshHit {
+    artMeshOrder: number;
+    isMasked: boolean;
+    hitInfo: ArtMeshHitInfo;
+}
 
 export interface LoadItemOptions {
     fileName: string;
