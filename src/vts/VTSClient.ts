@@ -7,6 +7,8 @@ export interface VTSClientOptions {
     pluginName: string;
     /** Plugin developer name shown to the user in VTS. */
     pluginDeveloper: string;
+    /** Base64-encoded PNG icon (exactly 128x128 px) shown in VTS plugin auth prompt. */
+    pluginIcon?: string;
     /** Timeout for individual requests in ms. Defaults to 10000. */
     requestTimeoutMs?: number;
 }
@@ -62,7 +64,7 @@ export class VTSClient {
         });
 
         const client = new VTSClient(ws, requestTimeoutMs);
-        await client.authenticate(opts.pluginName, opts.pluginDeveloper);
+        await client.authenticate(opts.pluginName, opts.pluginDeveloper, opts.pluginIcon);
         return client;
     }
 
@@ -110,11 +112,14 @@ export class VTSClient {
 
     // --- Plugin authentication ---
 
-    private async authenticate(pluginName: string, pluginDeveloper: string): Promise<void> {
-        const tokenResp = await this.sendRequest("AuthenticationTokenRequest", {
+    private async authenticate(pluginName: string, pluginDeveloper: string, pluginIcon?: string): Promise<void> {
+        const tokenData: Record<string, unknown> = {
             pluginName,
             pluginDeveloper,
-        });
+        };
+        if (pluginIcon) tokenData["pluginIcon"] = pluginIcon;
+
+        const tokenResp = await this.sendRequest("AuthenticationTokenRequest", tokenData);
 
         const token = (tokenResp.data as { authenticationToken?: string }).authenticationToken;
         if (!token) {
