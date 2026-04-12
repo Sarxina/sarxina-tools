@@ -295,6 +295,7 @@ export class VTSClient {
         angleRelativeTo?: PinInfo["angleRelativeTo"];
         sizeRelativeTo?: PinInfo["sizeRelativeTo"];
         size?: number;
+        angle?: number;
     }): Promise<void> {
         await this.sendRequest("ItemPinRequest", {
             pin: true,
@@ -305,7 +306,7 @@ export class VTSClient {
             pinInfo: {
                 modelID: pin.modelID,
                 artMeshID: pin.artMeshID,
-                angle: pin.angle,
+                angle: opts?.angle ?? 0,
                 size: opts?.size ?? pin.size,
                 vertexID1: pin.vertexID1,
                 vertexID2: pin.vertexID2,
