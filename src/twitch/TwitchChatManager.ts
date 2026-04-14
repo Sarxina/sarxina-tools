@@ -5,31 +5,37 @@ import { EventSubWsListener } from "@twurple/eventsub-ws";
 import type { EventSubChannelRedemptionAddEvent } from "@twurple/eventsub-base";
 import { ApiClient } from "@twurple/api";
 
+export type ChatCallback = (message: string, chatter: string) => void;
+export type RedeemCallback = (
+    chatter: string,
+    rewardTitle: string,
+    input: string,
+    cost: number
+) => void;
+
 // Manager class that listens for both chat messages and channel point redeems,
 // firing registered callbacks on a hit.
 //
 // Usage:
 //   const chat = new TwitchChatManager();
 //   chat.registerNewChatCallback((msg, user) => { ... });
-//   chat.registerNewRedeemCallback((user, input, cost) => { ... });
+//   chat.registerNewRedeemCallback((user, rewardTitle, input, cost) => { ... });
 export class TwitchChatManager {
     private chatClient!: ChatClient;
     private apiClient!: ApiClient;
     private eventListener!: EventSubWsListener;
-    private chatCallbacks: ((message: string, chatter: string) => void)[] = [];
-    private redeemCallbacks: ((chatter: string, input: string, cost: number) => void)[] = [];
+    private chatCallbacks: ChatCallback[] = [];
+    private redeemCallbacks: RedeemCallback[] = [];
 
     constructor() {
         this.setupTwitchConnection();
     }
 
-    registerNewChatCallback = (callback: (message: string, chatter: string) => void): void => {
+    registerNewChatCallback = (callback: ChatCallback): void => {
         this.chatCallbacks.push(callback);
     };
 
-    registerNewRedeemCallback = (
-        callback: (chatter: string, input: string, cost: number) => void
-    ): void => {
+    registerNewRedeemCallback = (callback: RedeemCallback): void => {
         this.redeemCallbacks.push(callback);
     };
 
@@ -57,7 +63,7 @@ export class TwitchChatManager {
             process.env["TWITCH_BROADCASTER_ID"]!,
             (event: EventSubChannelRedemptionAddEvent) => {
                 this.redeemCallbacks.forEach((cb) =>
-                    cb(event.userDisplayName, event.input, event.rewardCost)
+                    cb(event.userDisplayName, event.rewardTitle, event.input, event.rewardCost)
                 );
             }
         );
@@ -72,10 +78,10 @@ export class TwitchChatManager {
     };
 }
 
-// Class that handles a single command
+// Handles a single chat command — matches the first token of a message.
 export class ChatCommandManager {
-    private chatManager: TwitchChatManager
-    private command: string
+    private chatManager: TwitchChatManager;
+    private command: string;
 
     constructor(
         command: string,
@@ -85,15 +91,36 @@ export class ChatCommandManager {
         this.command = command;
         this.chatManager = chatManager;
 
-        // Create funciton that strips the command sends the subcommand
-        const subcommandCallback = (message: string, chatter: string) => {
-            const frontString = message.split(' ')[0];
+        const subcommandCallback: ChatCallback = (message, chatter) => {
+            const frontString = message.split(" ")[0];
             const subcommand = message.includes(" ") ? message.slice(message.indexOf(" ") + 1) : "";
 
             if (frontString === this.command) {
                 msgCallback(subcommand, chatter);
             }
-        }
+        };
         this.chatManager.registerNewChatCallback(subcommandCallback);
+    }
+}
+
+// Handles a single channel point redeem — matches by reward title (exact, case-sensitive).
+export class RedeemCommandManager {
+    private chatManager: TwitchChatManager;
+    private rewardTitle: string;
+
+    constructor(
+        rewardTitle: string,
+        msgCallback: (chatter: string, input: string, cost: number) => void,
+        chatManager: TwitchChatManager
+    ) {
+        this.rewardTitle = rewardTitle;
+        this.chatManager = chatManager;
+
+        const redeemCallback: RedeemCallback = (chatter, title, input, cost) => {
+            if (title === this.rewardTitle) {
+                msgCallback(chatter, input, cost);
+            }
+        };
+        this.chatManager.registerNewRedeemCallback(redeemCallback);
     }
 }

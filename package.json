@@ -1,6 +1,6 @@
 {
   "name": "@sarxina/sarxina-tools",
-  "version": "0.1.8",
+  "version": "0.2.0",
   "description": "Shared streaming utilities — Twitch chat manager, VTube Studio client, etc.",
   "type": "module",
   "main": "./dist/index.js",
@@ -17,6 +17,10 @@
     "./vts": {
       "types": "./dist/vts/index.d.ts",
       "import": "./dist/vts/index.js"
+    },
+    "./image": {
+      "types": "./dist/image/index.d.ts",
+      "import": "./dist/image/index.js"
     }
   },
   "files": [
@@ -27,11 +31,13 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
+    "@napi-rs/canvas": "^0.1.56",
     "@twurple/auth": "^7.4.0",
     "@twurple/chat": "^7.4.0",
     "@twurple/api": "^7.4.0",
     "@twurple/eventsub-ws": "^7.4.0",
     "@twurple/eventsub-base": "^7.4.0",
+    "sharp": "^0.34.5",
     "ws": "^8.16.0"
   },
   "devDependencies": {
