@@ -21,10 +21,15 @@
     "./image": {
       "types": "./dist/image/index.d.ts",
       "import": "./dist/image/index.js"
+    },
+    "./live2d": {
+      "types": "./dist/live2d/index.d.ts",
+      "import": "./dist/live2d/index.js"
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "vendor"
   ],
   "scripts": {
     "build": "tsc",
