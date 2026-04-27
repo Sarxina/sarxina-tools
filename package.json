@@ -1,6 +1,6 @@
 {
   "name": "@sarxina/sarxina-tools",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Shared streaming utilities — Twitch chat manager, VTube Studio client, etc.",
   "type": "module",
   "main": "./dist/index.js",
