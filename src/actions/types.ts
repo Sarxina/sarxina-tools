@@ -18,6 +18,7 @@ export type TriggerSource = {
 
 export type TriggerStringOperator =
     | "startsWith"
+    | "startsWithWord"   // input begins with value AND a word boundary follows (e.g. "!foo" matches "!foo bar" but not "!foobar")
     | "endsWith"
     | "containsWord"     // matches the value as a whole word, not a substring
     | "containsString"   // raw substring match

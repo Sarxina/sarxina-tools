@@ -7,6 +7,7 @@ const escapeRegex = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$
 // function on a numeric operator key would fail to compile.
 type OperatorIO = {
     startsWith:         { input: string;           value: string };
+    startsWithWord:     { input: string;           value: string };
     endsWith:           { input: string;           value: string };
     containsString:     { input: string;           value: string };
     containsWord:       { input: string;           value: string };
@@ -26,6 +27,7 @@ type OperatorIO = {
 // error.
 const operatorFns: { [O in TriggerOperator]: (input: OperatorIO[O]["input"], value: OperatorIO[O]["value"]) => boolean } = {
     startsWith:         (input, v) => input.startsWith(v),
+    startsWithWord:     (input, v) => new RegExp(`^${escapeRegex(v)}\\b`).test(input),
     endsWith:           (input, v) => input.endsWith(v),
     containsString:     (input, v) => input.includes(v),
     containsWord:       (input, v) => new RegExp(`\\b${escapeRegex(v)}\\b`).test(input),
