@@ -1,6 +1,2 @@
-export {
-    TwitchChatManager,
-    ChatCommandManager,
-    RedeemCommandManager,
-} from "./TwitchChatManager.js";
-export type { ChatCallback, RedeemCallback } from "./TwitchChatManager.js";
+export { TwitchManager, TWITCH_EVENT_KINDS } from "./TwitchManager.js";
+export type { TwitchEvents } from "./TwitchManager.js";
