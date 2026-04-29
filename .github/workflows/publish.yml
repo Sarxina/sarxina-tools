@@ -10,8 +10,12 @@ on:
 jobs:
   release:
     uses: ./.github/workflows/release.yml
+    permissions:
+      contents: write   # for pushing the tag
+      id-token: write   # for npm provenance via OIDC
     with:
       npm_publish: true
       install_command: corepack enable && pnpm install --frozen-lockfile
       build_command: pnpm build
       run_tests: false
+    secrets: inherit
