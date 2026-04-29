@@ -1,0 +1,12 @@
+name: PR
+
+# Stub workflow that delegates to the reusable pr-checks workflow defined
+# in this same repo. Other Sarxina repos reference it via:
+#   uses: Sarxina/sarxina-tools/.github/workflows/pr-checks.yml@main
+on:
+  pull_request:
+    types: [opened, edited, synchronize, labeled, unlabeled]
+
+jobs:
+  pr-checks:
+    uses: ./.github/workflows/pr-checks.yml
