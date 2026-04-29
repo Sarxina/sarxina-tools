@@ -51,9 +51,9 @@ on:
 jobs:
   release:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write   # for pushing the tag
-      id-token: write   # for npm provenance via OIDC
+    # Permissions are configured by the calling workflow's job-level
+    # `permissions:` block (this is required: "for reusable workflows used
+    # by a private repository, the calling workflow specifies permissions").
     steps:
       - name: Checkout
         uses: actions/checkout@v4
