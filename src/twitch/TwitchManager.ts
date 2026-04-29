@@ -36,9 +36,16 @@ export class TwitchManager extends EventEmitter implements PlatformManager<Twitc
     private apiClient!: ApiClient;
     private eventListener!: EventSubWsListener;
 
-    constructor() {
+    /**
+     * @param options.autoConnect - When `false`, skips wiring up twurple
+     *   clients in the constructor. Tests can use this to instantiate a
+     *   real `TwitchManager` without dialing Twitch. Defaults to `true`.
+     */
+    constructor(options: { autoConnect?: boolean } = {}) {
         super();
-        this.setupTwitchConnection();
+        if (options.autoConnect !== false) {
+            this.setupTwitchConnection();
+        }
     }
 
     /**
