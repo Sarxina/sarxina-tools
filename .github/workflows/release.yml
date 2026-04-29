@@ -1,0 +1,112 @@
+name: Release (reusable)
+
+# Reusable workflow that runs on push to main in consuming repos. Reads
+# `package.json`'s version. If no git tag matches yet, runs tests + build,
+# optionally publishes to npm, then creates and pushes the tag.
+#
+# Tags aren't under branch protection so this workflow doesn't need bypass.
+# The `pr-checks.yml` workflow guarantees that every commit reaching main
+# was version-bumped and labeled correctly, so we trust package.json here.
+#
+# Each consuming repo adds a tiny stub:
+#
+#   on: push: branches: [main]
+#   jobs:
+#     release:
+#       uses: Sarxina/sarxina-tools/.github/workflows/release.yml@main
+#       with:
+#         npm_publish: true
+#         apt_packages: libasound2-dev   # if any
+#         build_command: npm run build:server
+#         test_command: npm test
+
+on:
+  workflow_call:
+    inputs:
+      npm_publish:
+        type: boolean
+        default: false
+        description: Publish to npm after the build step.
+      apt_packages:
+        type: string
+        default: ""
+        description: Space-separated apt packages to install before deps (e.g. "libasound2-dev" for native modules).
+      install_command:
+        type: string
+        default: "npm install"
+        description: The dependency install command. Repos using pnpm pass "corepack enable && pnpm install --frozen-lockfile".
+      build_command:
+        type: string
+        default: "npm run build"
+        description: The build command to run after tests pass.
+      test_command:
+        type: string
+        default: "npm test"
+        description: The test command to run before building.
+      run_tests:
+        type: boolean
+        default: true
+        description: Set to false in repos that don't have a test suite yet.
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # for pushing the tag
+      id-token: write   # for npm provenance via OIDC
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      - name: Read package.json version
+        id: version
+        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Skip if tag already exists
+        id: gate
+        run: |
+          set -euo pipefail
+          if git rev-parse "v${{ steps.version.outputs.version }}" >/dev/null 2>&1; then
+            echo "Tag v${{ steps.version.outputs.version }} already exists. Nothing to release."
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Will release v${{ steps.version.outputs.version }}."
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install apt packages
+        if: steps.gate.outputs.should_release == 'true' && inputs.apt_packages != ''
+        run: sudo apt-get update && sudo apt-get install -y ${{ inputs.apt_packages }}
+
+      - name: Install dependencies
+        if: steps.gate.outputs.should_release == 'true'
+        run: ${{ inputs.install_command }}
+
+      - name: Run tests
+        if: steps.gate.outputs.should_release == 'true' && inputs.run_tests
+        run: ${{ inputs.test_command }}
+
+      - name: Build
+        if: steps.gate.outputs.should_release == 'true'
+        run: ${{ inputs.build_command }}
+
+      - name: Publish to npm
+        if: steps.gate.outputs.should_release == 'true' && inputs.npm_publish
+        run: npm publish --access public --provenance
+        env:
+          NPM_CONFIG_PROVENANCE: "true"
+
+      - name: Create and push tag
+        if: steps.gate.outputs.should_release == 'true'
+        run: |
+          set -euo pipefail
+          git tag "v${{ steps.version.outputs.version }}"
+          git push origin "v${{ steps.version.outputs.version }}"

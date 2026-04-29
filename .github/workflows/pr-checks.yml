@@ -1,0 +1,98 @@
+name: PR Checks (reusable)
+
+# Reusable workflow that enforces:
+#   1. Exactly one of `major` / `minor` / `patch` is set as a label on the PR.
+#   2. `package.json`'s version was advanced from the base ref AND the bump
+#      matches the label (e.g. base 0.1.10 + minor → 0.2.0).
+#
+# Each consuming repo adds a tiny stub workflow:
+#
+#   on: pull_request: types: [opened, edited, synchronize, labeled, unlabeled]
+#   jobs:
+#     pr-checks:
+#       uses: Sarxina/sarxina-tools/.github/workflows/pr-checks.yml@main
+#
+# Both jobs become required status checks via branch protection.
+
+on:
+  workflow_call:
+
+jobs:
+  version-label:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify exactly one of major / minor / patch label is on the PR
+        env:
+          LABELS_JSON: ${{ toJSON(github.event.pull_request.labels) }}
+        run: |
+          set -euo pipefail
+          MATCHED=$(jq -r '[.[] | select(.name=="major" or .name=="minor" or .name=="patch")] | length' <<<"$LABELS_JSON")
+          NAMES=$(jq -r '[.[].name] | join(", ")' <<<"$LABELS_JSON")
+          if [ "$MATCHED" -eq 0 ]; then
+            echo "::error::PR has no version label. Add exactly one of: major, minor, patch. (Current labels: $NAMES)"
+            exit 1
+          fi
+          if [ "$MATCHED" -gt 1 ]; then
+            echo "::error::PR has multiple version labels. Use exactly one of: major, minor, patch. (Current labels: $NAMES)"
+            exit 1
+          fi
+          PICKED=$(jq -r '[.[] | select(.name=="major" or .name=="minor" or .name=="patch")][0].name' <<<"$LABELS_JSON")
+          echo "Version label: $PICKED"
+
+  version-bump:
+    runs-on: ubuntu-latest
+    needs: version-label
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Determine label
+        id: label
+        env:
+          LABELS_JSON: ${{ toJSON(github.event.pull_request.labels) }}
+        run: |
+          set -euo pipefail
+          LABEL=$(jq -r '[.[] | select(.name=="major" or .name=="minor" or .name=="patch")][0].name' <<<"$LABELS_JSON")
+          echo "label=$LABEL" >> "$GITHUB_OUTPUT"
+
+      - name: Read PR head and base versions of package.json
+        id: versions
+        run: |
+          set -euo pipefail
+          HEAD_VERSION=$(node -p "require('./package.json').version")
+          git fetch origin "${{ github.event.pull_request.base.ref }}":refs/heads/__base
+          BASE_VERSION=$(git show __base:package.json | node -e "let s=''; process.stdin.on('data',c=>s+=c); process.stdin.on('end',()=>console.log(JSON.parse(s).version))")
+          echo "head=$HEAD_VERSION" >> "$GITHUB_OUTPUT"
+          echo "base=$BASE_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Compute expected version from base + label
+        id: expected
+        run: |
+          set -euo pipefail
+          BASE="${{ steps.versions.outputs.base }}"
+          LABEL="${{ steps.label.outputs.label }}"
+          IFS='.' read -r MAJ MIN PAT <<<"$BASE"
+          case "$LABEL" in
+            major) EXPECTED="$((MAJ + 1)).0.0" ;;
+            minor) EXPECTED="${MAJ}.$((MIN + 1)).0" ;;
+            patch) EXPECTED="${MAJ}.${MIN}.$((PAT + 1))" ;;
+            *) echo "::error::Unknown label '$LABEL'"; exit 1 ;;
+          esac
+          echo "expected=$EXPECTED" >> "$GITHUB_OUTPUT"
+
+      - name: Verify package.json version matches the expected bump
+        run: |
+          set -euo pipefail
+          BASE="${{ steps.versions.outputs.base }}"
+          HEAD="${{ steps.versions.outputs.head }}"
+          EXPECTED="${{ steps.expected.outputs.expected }}"
+          LABEL="${{ steps.label.outputs.label }}"
+          if [ "$HEAD" != "$EXPECTED" ]; then
+            echo "::error::Label '$LABEL' implies $BASE → $EXPECTED, but package.json is at $HEAD."
+            echo "::error::Either (a) set package.json version to $EXPECTED, or (b) change the PR's version label."
+            exit 1
+          fi
+          echo "Version bump OK: $BASE → $HEAD ($LABEL)"
