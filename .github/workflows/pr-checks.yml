@@ -16,6 +16,11 @@ name: PR Checks (reusable)
 
 on:
   workflow_call:
+    inputs:
+      package_json_dir:
+        type: string
+        default: "."
+        description: Directory (relative to repo root) containing the package.json to check. Defaults to repo root. obs_vn uses "src/backend".
 
 jobs:
   version-label:
@@ -62,9 +67,10 @@ jobs:
         id: versions
         run: |
           set -euo pipefail
-          HEAD_VERSION=$(node -p "require('./package.json').version")
+          PKG="${{ inputs.package_json_dir }}/package.json"
+          HEAD_VERSION=$(node -p "require('./$PKG').version")
           git fetch origin "${{ github.event.pull_request.base.ref }}":refs/heads/__base
-          BASE_VERSION=$(git show __base:package.json | node -e "let s=''; process.stdin.on('data',c=>s+=c); process.stdin.on('end',()=>console.log(JSON.parse(s).version))")
+          BASE_VERSION=$(git show "__base:$PKG" | node -e "let s=''; process.stdin.on('data',c=>s+=c); process.stdin.on('end',()=>console.log(JSON.parse(s).version))")
           echo "head=$HEAD_VERSION" >> "$GITHUB_OUTPUT"
           echo "base=$BASE_VERSION" >> "$GITHUB_OUTPUT"
 
