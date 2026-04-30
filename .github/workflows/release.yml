@@ -51,6 +51,10 @@ on:
         type: string
         default: "."
         description: Directory (relative to repo root) containing the package.json to release. Defaults to repo root. obs_vn uses "src/backend".
+      tag_prefix:
+        type: string
+        default: "v"
+        description: Prefix for the git tag. Defaults to "v" (so 0.1.0 → tag v0.1.0). Monorepo toys use a per-toy prefix like "meshmarket-v" so each toy has its own tag namespace.
 
 jobs:
   release:
@@ -82,13 +86,15 @@ jobs:
         # Tags exist at the repo level — git operations work from any subdir.
         run: |
           set -euo pipefail
-          if git rev-parse "v${{ steps.version.outputs.version }}" >/dev/null 2>&1; then
-            echo "Tag v${{ steps.version.outputs.version }} already exists. Nothing to release."
+          TAG="${{ inputs.tag_prefix }}${{ steps.version.outputs.version }}"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists. Nothing to release."
             echo "should_release=false" >> "$GITHUB_OUTPUT"
           else
-            echo "Will release v${{ steps.version.outputs.version }}."
+            echo "Will release $TAG."
             echo "should_release=true" >> "$GITHUB_OUTPUT"
           fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
       - name: Install apt packages
         if: steps.gate.outputs.should_release == 'true' && inputs.apt_packages != ''
@@ -117,5 +123,5 @@ jobs:
         if: steps.gate.outputs.should_release == 'true'
         run: |
           set -euo pipefail
-          git tag "v${{ steps.version.outputs.version }}"
-          git push origin "v${{ steps.version.outputs.version }}"
+          git tag "${{ steps.gate.outputs.tag }}"
+          git push origin "${{ steps.gate.outputs.tag }}"
