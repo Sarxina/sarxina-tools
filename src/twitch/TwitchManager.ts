@@ -71,17 +71,28 @@ export class TwitchManager extends EventEmitter implements PlatformManager<Twitc
             this.emit("chat", { user, message });
         });
 
-        this.eventListener.onChannelRedemptionAdd(
-            process.env["TWITCH_BROADCASTER_ID"]!,
-            (event: EventSubChannelRedemptionAddEvent) => {
-                this.emit("reward", {
-                    user: event.userDisplayName,
-                    rewardTitle: event.rewardTitle,
-                    input: event.input,
-                    cost: event.rewardCost,
-                });
-            },
-        );
+        // Channel-point redemptions require TWITCH_BROADCASTER_ID to identify
+        // the broadcaster's user-id and an access token with the
+        // `channel:read:redemptions` scope. Skip the listener if either is
+        // missing rather than crashing — chat-only consumers don't need this.
+        const broadcasterId = process.env["TWITCH_BROADCASTER_ID"];
+        if (broadcasterId) {
+            this.eventListener.onChannelRedemptionAdd(
+                broadcasterId,
+                (event: EventSubChannelRedemptionAddEvent) => {
+                    this.emit("reward", {
+                        user: event.userDisplayName,
+                        rewardTitle: event.rewardTitle,
+                        input: event.input,
+                        cost: event.rewardCost,
+                    });
+                },
+            );
+        } else {
+            console.warn(
+                "TWITCH_BROADCASTER_ID not set — channel point redemption events disabled.",
+            );
+        }
 
         this.eventListener.start();
         this.chatClient.connect();
