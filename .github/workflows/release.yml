@@ -47,10 +47,17 @@ on:
         type: boolean
         default: true
         description: Set to false in repos that don't have a test suite yet.
+      working_directory:
+        type: string
+        default: "."
+        description: Directory (relative to repo root) containing the package.json to release. Defaults to repo root. obs_vn uses "src/backend".
 
 jobs:
   release:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ inputs.working_directory }}
     # Permissions are configured by the calling workflow's job-level
     # `permissions:` block (this is required: "for reusable workflows used
     # by a private repository, the calling workflow specifies permissions").
@@ -72,6 +79,7 @@ jobs:
 
       - name: Skip if tag already exists
         id: gate
+        # Tags exist at the repo level — git operations work from any subdir.
         run: |
           set -euo pipefail
           if git rev-parse "v${{ steps.version.outputs.version }}" >/dev/null 2>&1; then
@@ -84,6 +92,7 @@ jobs:
 
       - name: Install apt packages
         if: steps.gate.outputs.should_release == 'true' && inputs.apt_packages != ''
+        # apt-get is global — `working-directory` is irrelevant here.
         run: sudo apt-get update && sudo apt-get install -y ${{ inputs.apt_packages }}
 
       - name: Install dependencies
